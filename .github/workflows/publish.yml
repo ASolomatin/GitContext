@@ -1,0 +1,51 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*' # Publish on any new tag starting with v
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET 9.0
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 9.0.x
+
+    - name: Set RELEASE_VERSION env
+      run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/v}" >> $GITHUB_ENV
+    - name: Create nuget package
+      run: dotnet pack src/GitContext/GitContext.csproj -c Release /p:Version=${{ env.RELEASE_VERSION }}
+
+    - name: prepare artifacts
+      run: |
+        ARTIFACT_NUPKG_PATHNAME=$(ls src/GitContext/bin/Release/*.nupkg | head -n 1)
+        echo "ARTIFACT_NUPKG_PATHNAME=${ARTIFACT_NUPKG_PATHNAME}" >> $GITHUB_ENV
+        cd src/GitContext/bin/Release/
+        ls */*.dll | xargs -I _FILE_ bash -c "cp _FILE_ \$(echo _FILE_ | sed 's/\//_/g')"
+        ls */*.pdb | xargs -I _FILE_ bash -c "cp _FILE_ \$(echo _FILE_ | sed 's/\//_/g')"
+        ls */*.xml | xargs -I _FILE_ bash -c "cp _FILE_ \$(echo _FILE_ | sed 's/\//_/g')"
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+          files: |
+            src/GitContext/bin/Release/*.nupkg
+            src/GitContext/bin/Release/*.dll
+            src/GitContext/bin/Release/*.pdb
+            src/GitContext/bin/Release/*.xml
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: nuget push
+      run: dotnet nuget push "${NUPKG_PATH}" --api-key "${NUGET_KEY}" --source https://api.nuget.org/v3/index.json
+      env:
+        NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
+        NUPKG_PATH: ${{ env.ARTIFACT_NUPKG_PATHNAME }}
